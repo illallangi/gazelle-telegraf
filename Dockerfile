@@ -11,10 +11,9 @@ RUN curl -s https://repos.influxdata.com/influxdb.key | apt-key add -
 RUN echo "deb https://repos.influxdata.com/debian buster stable" > /etc/apt/sources.list.d/influxdb.list
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      iputils-ping \
-      lm-sensors \
-      procps \
-      snmp \
+      iputils-ping=3:20210202-1 \
+      lm-sensors=1:3.6.0-7 \
+      snmp=5.9+dfsg-3+b1 \
       telegraf=1.22.4-1 \
     && \
     rm -rf /var/lib/apt/lists/*

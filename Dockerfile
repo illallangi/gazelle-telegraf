@@ -22,8 +22,8 @@ RUN apt-get update && \
 COPY ./requirements.txt /usr/src/app/requirements.txt
 RUN python3 -m pip install --no-cache-dir -r /usr/src/app/requirements.txt
 
-ADD entrypoint.sh /entrypoint.sh
-ADD telegraf.conf /etc/telegraf/telegraf.conf
+COPY entrypoint.sh /entrypoint.sh
+COPY telegraf.conf /etc/telegraf/telegraf.conf
 
 COPY ./telegraf_gazelle /usr/src/app/telegraf_gazelle
 

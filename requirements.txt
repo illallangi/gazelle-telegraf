@@ -1,7 +1,9 @@
 bytesize
 click
 diskcache
+jsonpatch
 loguru
 requests
 six
 telegraf_pyplug
+yarl

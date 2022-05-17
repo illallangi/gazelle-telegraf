@@ -1,3 +1,7 @@
+bytesize
 click
+diskcache
+loguru
+requests
 six
 telegraf_pyplug

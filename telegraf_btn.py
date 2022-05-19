@@ -1,132 +1,88 @@
-from requests import get as http_get, post as http_post
-from time import sleep
+from requests import post as http_post, HTTPError
 from loguru import logger
-from typing import Dict
 
 from click import STRING, command, option
 
-from illallangi.btnapi import API as BTN_API, ENDPOINTDEF as BTN_ENDPOINTDEF
-from illallangi.orpheusapi import API as ORP_API, ENDPOINTDEF as ORP_ENDPOINTDEF
-from illallangi.redactedapi import API as RED_API, ENDPOINTDEF as RED_ENDPOINTDEF
-
 from telegraf_pyplug.main import print_influxdb_format
 
-METRICNAMEDEF = "gazelle"
+from yarl import URL
 
-HEADERS = {"User-Agent": "illallangi-gazelle-telegraf/0.0.1"}
+ENDPOINTDEF = URL("https://api.broadcasthe.net/")
+USERAGENTDEF = "illallangi-gazelle-telegraf/0.0.1"
+METRICNAMEDEF = "gazelle"
 
 
 @command()
-@option("--metric-name", type=STRING, required=False, default=METRICNAMEDEF)
-@option("--orpheus-api-key", envvar="ORPHEUS_API_KEY", type=STRING)
-@option("--orpheus-endpoint", type=STRING, required=False, default=ORP_ENDPOINTDEF)
-@option("--redacted-api-key", envvar="REDACTED_API_KEY", type=STRING)
-@option("--redacted-endpoint", type=STRING, required=False, default=RED_ENDPOINTDEF)
-@option("--btn-api-key", envvar="BTN_API_KEY", type=STRING)
-@option("--btn-endpoint", type=STRING, required=False, default=BTN_ENDPOINTDEF)
+@option("--api-key", envvar="BTN_API_KEY", type=STRING)
+@option(
+    "--endpoint",
+    required=False,
+    default=ENDPOINTDEF,
+    show_default=True,
+    callback=lambda _1, _2, x: x if isinstance(x, URL) else URL(x),
+)
+@option("--metric-name", required=False, default=METRICNAMEDEF, show_default=True)
+@option("--user-agent", required=False, default=USERAGENTDEF, show_default=True)
 def cli(
+    api_key,
+    endpoint,
     metric_name,
-    orpheus_api_key,
-    orpheus_endpoint,
-    redacted_api_key,
-    redacted_endpoint,
-    btn_api_key,
-    btn_endpoint,
+    user_agent,
 ):
+    assert isinstance(endpoint, URL)
 
-    if orpheus_api_key:
-        orp_api = ORP_API(orpheus_api_key, orpheus_endpoint, success_expiry=600)
-        orp_index = orp_api.get_index()
-
-        tags: Dict[str, str] = {
-            "id": orp_index.id,
-            "username": orp_index.username,
-            "class": orp_index.userstats.userclass,
-            "tracker": "ORP",
+    if api_key:
+        post = {
+            "url": endpoint,
+            "json": {"method": "userInfo", "params": [api_key], "id": 1},
+            "headers": {
+                "User-Agent": user_agent,
+            },
         }
 
-        fields: Dict[str, float] = {
-            "uploaded": int(orp_index.userstats.uploaded),
-            "downloaded": int(orp_index.userstats.downloaded),
-            "ratio": orp_index.userstats.ratio,
-            "requiredratio": orp_index.userstats.requiredratio,
-            "bonuspoints": orp_index.userstats.bonuspoints,
-            "bonuspointsperhour": orp_index.userstats.bonuspointsperhour,
-        }
-
-        print_influxdb_format(
-            measurement=metric_name, tags=tags, fields=fields, add_timestamp=True
-        )
-
-    if redacted_api_key:
-        red_api = RED_API(redacted_api_key, redacted_endpoint, success_expiry=600)
-        red_index = red_api.get_index()
-
-        tags: Dict[str, str] = {
-            "id": red_index.id,
-            "username": red_index.username,
-            "class": red_index.userstats.userclass,
-            "tracker": "RED",
-        }
-
-        fields: Dict[str, float] = {
-            "uploaded": int(red_index.userstats.uploaded),
-            "downloaded": int(red_index.userstats.downloaded),
-            "ratio": red_index.userstats.ratio,
-            "requiredratio": red_index.userstats.requiredratio,
-        }
-
-        print_influxdb_format(
-            measurement=metric_name, tags=tags, fields=fields, add_timestamp=True
-        )
-
-    if btn_api_key:
-        logger.debug(
-            "Getting user statistics from {0} with api key {1}".format(
-                btn_endpoint, btn_api_key
-            )
-        )
-
-        payload = {"method": "userInfo", "params": [btn_api_key], "id": 1}
         while True:
+            logger.trace(post)
+            try:
+                r = http_post(**post)
+                r.raise_for_status()
+                assert r.headers.get("content-type").startswith(
+                    "application/json"
+                ), f'content-type was {r.headers.get("content-type")}, expected application/json'
+                result = r.json()
+            except HTTPError as http_err:
+                logger.error(f"HTTP error occurred: {http_err}")
+                return
+            except Exception as err:
+                logger.error(f"Other error occurred: {err}")
+                return
+
+            logger.debug("Received {0} bytes from API".format(len(r.content)))
             logger.trace(
                 {
-                    "endpoint": btn_endpoint,
-                    "payload": payload,
-                    "headers": HEADERS,
+                    "headers": r.headers,
+                    "body": result,
                 }
             )
-            r = http_post(
-                btn_endpoint,
-                json=payload,
-                headers=HEADERS,
-            )
-            logger.debug("Received {0} bytes from API".format(len(r.content)))
-            logger.trace(r.headers)
-            result = r.json()
-            logger.trace(result)
-            if result.get("error", {}).get("code", 0) == -32002:
-                logger.warning(
-                    "{}, waiting {} seconds", result["error"]["message"], sleep_time
-                )
-                sleep(sleep_time)
-                sleep_time = sleep_time * 2
-                continue
+
+            if "error" in result:
+                logger.error(f'Error {result.get("error")}, expected none')
+                break
             if "result" not in result or result["result"] is None:
-                logger.error("No response received")
+                logger.error("No result received")
                 break
 
             result = result["result"]
-            tags: Dict[str, str] = {
+
+            tags = {
                 "id": result["UserID"],
                 "username": result["Username"],
+                "class": result["Class"],
+                "tracker": "BTN",
                 "email": result["Email"],
                 "title": result["Title"],
                 "joindate": result["JoinDate"],
                 "enabled": result["Enabled"],
                 "paranoia": result["Paranoia"],
-                "class": result["Class"],
-                "tracker": "BTN",
             }
 
             fields = {
@@ -143,12 +99,13 @@ def cli(
             }
 
             print_influxdb_format(
-                measurement=metric_name, tags=tags, fields=fields, add_timestamp=True
+                measurement=metric_name,
+                tags=tags,
+                fields=fields,
+                add_timestamp=True,
             )
 
             break
-
-        logger.info("done")
 
 
 if __name__ == "__main__":

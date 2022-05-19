@@ -34,46 +34,51 @@ def cli(
     if api_key:
         post = {
             "url": endpoint,
-            "json": {"method": "userInfo", "params": [api_key], "id": 1},
+            "json": {
+                "method": "userInfo",
+                "params": [api_key],
+                "id": 1,
+            },
             "headers": {
                 "User-Agent": user_agent,
             },
         }
 
-        while True:
-            logger.trace(post)
-            try:
-                r = http_post(**post)
-                r.raise_for_status()
-                assert r.headers.get("content-type").startswith(
-                    "application/json"
-                ), f'content-type was {r.headers.get("content-type")}, expected application/json'
-                result = r.json()
-            except HTTPError as http_err:
-                logger.error(f"HTTP error occurred: {http_err}")
-                return
-            except Exception as err:
-                logger.error(f"Other error occurred: {err}")
-                return
+        logger.trace(post)
+        try:
+            r = http_post(**post)
+            r.raise_for_status()
+            assert r.headers.get("content-type").startswith(
+                "application/json"
+            ), f'content-type was {r.headers.get("content-type")}, expected application/json'
+            result = r.json()
+        except HTTPError as http_err:
+            logger.error(f"HTTP error occurred: {http_err}")
+            return
+        except Exception as err:
+            logger.error(f"Other error occurred: {err}")
+            return
 
-            logger.debug("Received {0} bytes from API".format(len(r.content)))
-            logger.trace(
-                {
-                    "headers": r.headers,
-                    "body": result,
-                }
-            )
+        logger.debug("Received {0} bytes from API".format(len(r.content)))
+        logger.trace(
+            {
+                "headers": r.headers,
+                "body": result,
+            }
+        )
 
-            if "error" in result:
-                logger.error(f'Error {result.get("error")}, expected none')
-                break
-            if "result" not in result or result["result"] is None:
-                logger.error("No result received")
-                break
+        if "error" in result:
+            logger.error(f'Error {result.get("error")}, expected none')
+            return
+        if "result" not in result or result["result"] is None:
+            logger.error("No result received")
+            return
 
-            result = result["result"]
+        result = result["result"]
 
-            tags = {
+        tags = {
+            k: v
+            for k, v in {
                 "id": result["UserID"],
                 "username": result["Username"],
                 "class": result["Class"],
@@ -83,9 +88,13 @@ def cli(
                 "joindate": result["JoinDate"],
                 "enabled": result["Enabled"],
                 "paranoia": result["Paranoia"],
-            }
+            }.items()
+            if v is not None and v != ""
+        }
 
-            fields = {
+        fields = {
+            k: v
+            for k, v in {
                 "uploaded": int(result["Upload"]),
                 "downloaded": int(result["Download"]),
                 "ratio": int(result["Upload"]) / int(result["Download"]),
@@ -96,16 +105,16 @@ def cli(
                 "lumens": int(result["Lumens"]),
                 "invites": int(result["Invites"]),
                 "classlevel": int(result["ClassLevel"]),
-            }
+            }.items()
+            if v is not None and v != ""
+        }
 
-            print_influxdb_format(
-                measurement=metric_name,
-                tags=tags,
-                fields=fields,
-                add_timestamp=True,
-            )
-
-            break
+        print_influxdb_format(
+            measurement=metric_name,
+            tags=tags,
+            fields=fields,
+            add_timestamp=True,
+        )
 
 
 if __name__ == "__main__":

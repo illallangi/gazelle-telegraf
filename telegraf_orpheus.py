@@ -7,7 +7,7 @@ from telegraf_pyplug.main import print_influxdb_format
 
 from yarl import URL
 
-ENDPOINTDEF = "https://orpheus.network/"
+ENDPOINTDEF = URL("https://orpheus.network/")
 USERAGENTDEF = "illallangi-gazelle-telegraf/0.0.1"
 METRICNAMEDEF = "gazelle"
 
@@ -40,66 +40,71 @@ def cli(
             },
         }
 
-        while True:
-            logger.trace(get)
-            try:
-                r = http_get(**get)
-                r.raise_for_status()
-                assert r.headers.get("content-type").startswith(
-                    "application/json"
-                ), f'content-type was {r.headers.get("content-type")}, expected application/json'
-                result = r.json()
-            except HTTPError as http_err:
-                logger.error(f"HTTP error occurred: {http_err}")
-                return
-            except Exception as err:
-                logger.error(f"Other error occurred: {err}")
-                return
+        logger.trace(get)
+        try:
+            r = http_get(**get)
+            r.raise_for_status()
+            assert r.headers.get("content-type").startswith(
+                "application/json"
+            ), f'content-type was {r.headers.get("content-type")}, expected application/json'
+            result = r.json()
+        except HTTPError as http_err:
+            logger.error(f"HTTP error occurred: {http_err}")
+            return
+        except Exception as err:
+            logger.error(f"Other error occurred: {err}")
+            return
 
-            logger.debug("Received {0} bytes from API".format(len(r.content)))
-            logger.trace(
-                {
-                    "headers": r.headers,
-                    "body": result,
-                }
-            )
+        logger.debug("Received {0} bytes from API".format(len(r.content)))
+        logger.trace(
+            {
+                "headers": r.headers,
+                "body": result,
+            }
+        )
 
-            if "error" in result:
-                logger.error(f'Error {result.get("error")}, expected none')
-                break
-            if "status" not in result or result["status"] != "success":
-                logger.error(f'Status of {result.get("status")}, expected success')
-                break
-            if "response" not in result or result["response"] is None:
-                logger.error("No response received")
-                break
+        if "error" in result:
+            logger.error(f'Error {result.get("error")}, expected none')
+            return
+        if "status" not in result or result["status"] != "success":
+            logger.error(f'Status of {result.get("status")}, expected success')
+            return
+        if "response" not in result or result["response"] is None:
+            logger.error("No response received")
+            return
 
-            result = result["response"]
+        result = result["response"]
 
-            tags = {
+        tags = {
+            k: v
+            for k, v in {
                 "id": result["id"],
                 "username": result["username"],
                 "class": result["userstats"]["class"],
                 "tracker": "ORP",
-            }
+            }.items()
+            if v is not None and v != ""
+        }
 
-            fields = {
+        fields = {
+            k: v
+            for k, v in {
                 "uploaded": int(result["userstats"]["uploaded"]),
                 "downloaded": int(result["userstats"]["downloaded"]),
                 "ratio": float(result["userstats"]["ratio"]),
                 "requiredratio": float(result["userstats"]["requiredratio"]),
                 "bonuspoints": int(result["userstats"]["bonusPoints"]),
                 "bonuspointsperhour": float(result["userstats"]["bonusPointsPerHour"]),
-            }
+            }.items()
+            if v is not None and v != ""
+        }
 
-            print_influxdb_format(
-                measurement=metric_name,
-                tags=tags,
-                fields=fields,
-                add_timestamp=True,
-            )
-
-            break
+        print_influxdb_format(
+            measurement=metric_name,
+            tags=tags,
+            fields=fields,
+            add_timestamp=True,
+        )
 
 
 if __name__ == "__main__":
